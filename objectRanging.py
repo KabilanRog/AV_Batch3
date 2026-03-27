@@ -27,7 +27,6 @@ def ranging(depth):
 
 #------------- main -------------
 myCam = QCarRealSense(mode='RGB, Depth')
-myCar = QCar(readMode=1, frequency=10)
 
 try:
     while True:
