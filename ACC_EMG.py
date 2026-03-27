@@ -9,8 +9,8 @@ myCam = QCarRealSense(mode='Depth')      # ONLY depth (faster)
 
 BASE_SPEED = 0.35
 
-STOP_DISTANCE = 25
-SLOW_DISTANCE = 35
+STOP_DISTANCE = 35
+SLOW_DISTANCE = 45
 
 print("ADAS ACTIVE 🚨 (FAST MODE)")
 print("Arrow Keys → Move | CTRL+C → Quit")
