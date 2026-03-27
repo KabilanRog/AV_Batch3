@@ -1,93 +1,74 @@
-import os
-import time
-import sys
-import math
-import keyboard
-
-from qvl.qcar2 import QLabsQCar2
-from qvl.system import QLabsSystem
-from qvl.real_time import QLabsRealTime
-from qvl.basic_shape import QLabsBasicShape
-from qvl.qlabs import QuanserInteractiveLabs
-from qvl.free_camera import QLabsFreeCamera
-
-def setup(
-        initialPosition=[1, 2, 0],      
-        initialOrientation=[0, 0, 0],   
-        s1_location = [12.7, 2, 1.5],   
-        s1_rotation = [0,0,0],
-        s1_scale = [3,3,3],             
-        cam_location = [-5.266, 12.454, 7.928],
-        cam_rotation = [0, 0.473, -1.562]        
-    ):
-
-    os.system('clear' if os.name == 'posix' else 'cls')
-    qlabs = QuanserInteractiveLabs()
-    
-    print("Connecting to QLabs...")
-    if (not qlabs.open("localhost")):
-        print("Unable to connect to QLabs")
-        sys.exit()
-    print("Connected to QLabs")
-
-    qlabs.destroy_all_spawned_actors()
-    QLabsRealTime().terminate_all_real_time_models()
-    time.sleep(0.5)
-
-    hqcar = QLabsQCar2(qlabs)
-    hqcar.spawn_id(
-        actorNumber=0,
-        location=initialPosition,
-        rotation=initialOrientation,
-        waitForConfirmation=True
-    )
-    
-    hcamera = QLabsFreeCamera(qlabs)
-    hcamera.spawn(cam_location, cam_rotation)
-    hcamera.possess()
-
-    shape1 = QLabsBasicShape(qlabs)
-    shape1.spawn_id(actorNumber=0, location=s1_location, rotation=s1_rotation, scale=s1_scale, configuration=0, waitForConfirmation=True)
-    shape1.set_material_properties(color=[255/255,0/255,0/255], roughness=0.0, metallic=True, waitForConfirmation=True)
-    
-    return hqcar
-
-def manual_control(hqcar):
-    print("Control active. Use Arrow Keys to drive. Press 'ESC' to terminate.")
-    
-    speed = 2.0 
-    turn_angle = math.pi / 6 
-    
+from pal.products.qcar import QCar
+from pynput import keyboard
+ 
+# --- Control state ---
+throttle = 0.0
+steering = 0.0
+ 
+THROTTLE_STEP = 0.3   # Increment per keypress (-2.0 to 2.0 range)
+STEERING_STEP = 0.2   # Increment per keypress (-0.5 to 0.5 range)
+ 
+THROTTLE_MAX =  2.0
+THROTTLE_MIN = -2.0
+STEERING_MAX =  0.5
+STEERING_MIN = -0.5
+ 
+def on_press(key):
+    global throttle, steering
+    try:
+        if key == keyboard.Key.up:
+            throttle = min(throttle + THROTTLE_STEP, THROTTLE_MAX)
+        elif key == keyboard.Key.down:
+            throttle = max(throttle - THROTTLE_STEP, THROTTLE_MIN)
+        elif key == keyboard.Key.right:
+            steering = min(steering + STEERING_STEP, STEERING_MAX)
+        elif key == keyboard.Key.left:
+            steering = max(steering - STEERING_STEP, STEERING_MIN)
+        elif key == keyboard.Key.space:
+            # Emergency stop
+            throttle = 0.0
+            steering = 0.0
+            print("\n[SPACE] Emergency stop triggered.")
+    except AttributeError:
+        pass  # Ignore non-special keys
+ 
+def on_release(key):
+    global throttle, steering
+    # Gradually reset to neutral on key release
+    if key in (keyboard.Key.up, keyboard.Key.down):
+        throttle = 0.0
+    elif key in (keyboard.Key.left, keyboard.Key.right):
+        steering = 0.0
+ 
+# --- Start keyboard listener (non-blocking, runs in background thread) ---
+listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+listener.start()
+ 
+myCar = QCar(readMode=1, frequency=10)
+ 
+print("Arrow Key Control Active:")
+print("  ↑ / ↓  : Throttle forward / backward")
+print("  ← / →  : Steer left / right")
+print("  SPACE  : Emergency stop")
+print("  CTRL+C : Quit\n")
+ 
+try:
     while True:
-        forward_cmd = 0.0
-        turn_cmd = 0.0
-
-        if keyboard.is_pressed('up'):
-            forward_cmd = speed
-        elif keyboard.is_pressed('down'):
-            forward_cmd = -speed
-
-        if keyboard.is_pressed('right'):
-            turn_cmd = turn_angle
-        elif keyboard.is_pressed('left'):
-            turn_cmd = -turn_angle
-
-        if keyboard.is_pressed('esc'):
-            hqcar.set_velocity_and_request_state(0, 0, False, False, False, False, False)
-            break
-
-        hqcar.set_velocity_and_request_state(
-            forward=forward_cmd, 
-            turn=turn_cmd, 
-            headlights=False, 
-            leftTurnSignal=False, 
-            rightTurnSignal=False, 
-            brakeSignal=False, 
-            reverseSignal=False
+        myCar.write(throttle, steering)
+        myCar.read()
+ 
+        print(
+            f"Throttle: {throttle:+.2f} | Steering: {steering:+.2f} | "
+            f"Battery: {myCar.batteryVoltage:.2f} V | "
+            f"Motor Current: {myCar.motorCurrent:.2f} A | "
+            f"Tach: {myCar.motorTach:.2f}",
+            end="\r"  # Overwrite the same line for clean output
         )
-        
-        time.sleep(0.05) 
-
-if __name__ == '__main__':
-    car = setup()
-    manual_control(car)
+ 
+except KeyboardInterrupt:
+    print("\n\nProgram stopped by user (CTRL+C).")
+ 
+finally:
+    listener.stop()
+    myCar.write(0.0, 0.0)
+    print("Motors stopped. Safe to disconnect.")
